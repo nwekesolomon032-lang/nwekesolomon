@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {DatabaseSync} from 'node:sqlite';
 import {fileURLToPath} from 'url';
@@ -6,7 +7,23 @@ import {fileURLToPath} from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const DATA_DIR = path.resolve(__dirname, '..', 'data');
+function resolveDataDir(): string {
+  if (process.env.DATA_DIR?.trim()) {
+    return path.resolve(process.env.DATA_DIR.trim());
+  }
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    return path.join(os.tmpdir(), 'solmonix-data');
+  }
+  const localDir = path.resolve(__dirname, '..', 'data');
+  try {
+    fs.mkdirSync(localDir, {recursive: true});
+    return localDir;
+  } catch {
+    return path.join(os.tmpdir(), 'solmonix-data');
+  }
+}
+
+export const DATA_DIR = resolveDataDir();
 export const PUBLIC_UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 export const PRIVATE_ATTACHMENTS_DIR = path.join(DATA_DIR, 'private-attachments');
 export const DB_PATH = path.join(DATA_DIR, 'solmonix.db');
@@ -17,8 +34,13 @@ fs.mkdirSync(PRIVATE_ATTACHMENTS_DIR, {recursive: true});
 
 export const db = new DatabaseSync(DB_PATH);
 
+try {
+  db.exec('PRAGMA journal_mode = WAL;');
+} catch {
+  // Ignore WAL pragma errors on ephemeral filesystems
+}
+
 db.exec(`
-  PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
   CREATE TABLE IF NOT EXISTS admins (

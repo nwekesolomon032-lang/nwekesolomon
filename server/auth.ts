@@ -13,12 +13,28 @@ function resolveSessionSecret(): string {
     return envSecret;
   }
   const secretPath = path.join(DATA_DIR, '.session-secret');
-  if (fs.existsSync(secretPath)) {
-    const existing = fs.readFileSync(secretPath, 'utf8').trim();
-    if (existing.length >= 32) return existing;
+  try {
+    if (fs.existsSync(secretPath)) {
+      const existing = fs.readFileSync(secretPath, 'utf8').trim();
+      if (existing.length >= 32) return existing;
+    }
+  } catch {
+    // Ignore read errors and fall through
   }
-  const generated = crypto.randomBytes(48).toString('hex');
-  fs.writeFileSync(secretPath, generated, {mode: 0o600});
+
+  const generated =
+    process.env.VERCEL && (process.env.VERCEL_PROJECT_ID || process.env.VERCEL_URL)
+      ? crypto
+          .createHmac('sha256', 'solmonix-vercel-session')
+          .update(`${process.env.VERCEL_PROJECT_ID || ''}:${process.env.VERCEL_URL || ''}`)
+          .digest('hex')
+      : crypto.randomBytes(48).toString('hex');
+
+  try {
+    fs.writeFileSync(secretPath, generated, {mode: 0o600});
+  } catch {
+    // Keep in-memory secret if filesystem is read-only
+  }
   return generated;
 }
 
